@@ -1,0 +1,244 @@
+---
+title: "Opening Map Files"
+author: "Joy Payton"
+date: "2/26/2019"
+output: 
+  html_document: 
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALSE)
+
+# Note the "cache = TRUE" above -- this is polite, to keep from hitting someone's 
+# server over and over again as we incrementally improve a script.
+
+```
+
+## Shapefiles
+
+Shapefiles are actually groups of files.  You'll ordinarily find them as data sources from large organizations that can afford ESRI software licenses and use dedicated geographic information systems (GIS) for heavy-duty geographic data work.  Government agencies, for example, often use shapefiles.
+
+Here, we're going to download a file from the US Census Bureau and unzip it to a directory with the name of the file.  Make sure you change your working directory to whatever you want before executing this code, so that the files end up wherever you want them.
+
+```{r pennsylvania-shapefile}
+download.file("https://www2.census.gov/geo/tiger/TIGER2017/TRACT/tl_2017_42_tract.zip", "tl_2017_42_tract.zip")
+unzip("tl_2017_42_tract.zip", exdir = "tl_2017_42_tract")
+```
+
+### What's Inside?
+
+Let's peek inside the shapefile system.  You can look in your file system using your file explorer, or use the `list.files` command:
+
+```{r}
+list.files("tl_2017_42_tract")
+```
+
+Looks like we have some xml, a shapefile (.shp), and a few other things (.dbf? .prj? .cpg? .shx?)
+
+The three minimum files required to make a full shapefile are:
+
+* `.shp` file -- the main file, which describes the geometry (points, or vertices for lines or polygons) for each record
+* `.shx` file -- the index file, that tells where each record in the `.shp` file begins
+* `.dbf` file -- the attributes data, which lists arbitrary attributes for each record
+
+In our case we also have:
+
+* `.xml` files -- metadata, which could contain authorship data, a data dictionary, the purpose of the map, etc.
+* `.cpg` file -- a codepage for identifying the character set used (in our case, UTF-8)
+* `.prg` file -- for storing the projection used in the map
+
+We'll start with the fun stuff, making a map object in R from the main file, index file, and attributes data.
+
+### Mapping the Shapefile Required Data
+
+Let's get our map data about Pennsylvania into an object.
+
+```{r}
+#install.packages("rgdal")
+library(rgdal)
+pa <- readOGR(dsn = "tl_2017_42_tract", verbose = FALSE)
+```
+
+Let's look inside:
+
+```{r}
+str(pa, max.level = 2) # Let's not get too nested!
+```
+
+Looks like we have a data frame, a list of polygons, a list that gives the order of plotting, a bounding box with lat/long, and projection data.  What's happenining in `@data`?
+
+```{r}
+head(pa@data)
+```
+
+Now, let's actually draw a map from this, using leaflet.  We're going to set our map view on the mean latitude and longitude of our bounding box, and add the polygons found in our shapefile.  I'm also adding an extra, `suspendScroll`, so that unintended zooming is reduced.
+
+```{r}
+#install.packages("dplyr")
+#install.packages("leaflet")
+#install.packages("leaflet.extras")
+
+library(dplyr)
+library(leaflet)
+library(leaflet.extras)
+
+pa_census_map <- leaflet(pa) %>%
+  setView(lng = mean(pa@bbox['x',], na.rm=TRUE), 
+          lat = mean(pa@bbox['y',], na.rm=TRUE), zoom = 7) %>%
+  addPolygons() %>%
+  suspendScroll()
+
+pa_census_map
+```
+
+You can drag and zoom in this map.  Let's make it a bit nicer looking with better color selection, line widths, and maybe some mouseover functionality.
+
+```{r}
+custom_pa_census_map <- leaflet(pa) %>%
+  setView(lng = mean(pa@bbox['x',], na.rm=TRUE), 
+          lat = mean(pa@bbox['y',], na.rm=TRUE), zoom = 7) %>%
+  addPolygons(
+    weight = 1,  # border thickness
+    opacity = 0.5, # border opacity
+    color = "grey", # border color
+    fillColor = "white",
+    fillOpacity = 1,
+    label = paste(pa$NAMELSAD, ", GEOID ", pa$GEOID, sep=""),
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", 
+                    "padding" = "3px 8px"),
+                    "textsize" = "13px")
+  ) %>%
+  suspendScroll()
+
+custom_pa_census_map
+```
+
+Pretty nifty, but let's recall that there were other files that came along with the shapefile that were ancillary, like the .xml files and the projection.  Let's peek at those, too!
+
+### What's Inside Shapefile Ancillary Files?
+
+#### Projection Information:
+
+```{r}
+writeLines(readLines("tl_2017_42_tract/tl_2017_42_tract.prj", n=5, warn=FALSE))
+```
+
+#### Character Encoding:
+
+```{r}
+writeLines(readLines("tl_2017_42_tract/tl_2017_42_tract.cpg", n=5, warn=FALSE))
+```
+
+#### Metadata:
+
+As an aside, this metadata might be more easily read just by doing readlines, but in case you've never used an xml parser, this might be helpful.
+
+```{r}
+#install.package("xml2")
+library(xml2)
+metadata_1 <- read_xml("tl_2017_42_tract/tl_2017_42_tract.shp.xml")
+xml_contents(metadata_1)
+```
+
+Let's look at one node in its entirety:
+
+```{r}
+xml_text(xml_find_first(metadata_1, ".//useconst"))
+```
+
+Let's use `htmltidy` to look at a "pretty print" version of one of the shorter .xml files:
+
+```{r}
+#install.packages("htmltidy")
+library(htmltidy)
+
+
+metadata_2 <- read_xml("tl_2017_42_tract/tl_2017_42_tract.shp.ea.iso.xml")
+xml_tree_view(metadata_2, scroll = TRUE, height = "300px")
+```
+
+Great, so now you know what's inside a shapefile.  Some of these ancillary files will be useful for you as far as data provenance, data dictionaries, etc.
+
+Let's move on to GeoJSON!
+
+## GeoJSON
+
+You're probably familiar with JSON, which is frequently used to store and pass data between applications.  GeoJSON applies JSON structure to geospatial data in a single JSON file.
+
+Let's get a GeoJSON file to open and look at!  This GeoJSON represents the New York Senate districts in the NYC area (for 2013).  We'll look at it in its raw JSON state as well as examine what it looks like when converted to a SpatialPolygonDataFrame.
+
+### As JSON
+
+```{r}
+#install.packages("jsonlite")
+library(jsonlite)
+url <- URLencode('http://data.beta.nyc//dataset/f6738713-ab52-4508-aad9-778f5b651413/resource/712bdd42-5f17-4441-bb43-72bb37d85df6/download/83427cd54009438ab3388dd5ed3611cenycstatesenatedistricts2013.geojson')
+nyc_senate <- fromJSON(url)
+```
+
+Let's take a look inside `nyc_senate`.
+
+```{r}
+str(nyc_senate, max.level = 2)
+```
+
+Looks like we have a bunch of "Features". Each Feature has an associated id, some properties, and geospatial data associated with it.
+
+What's in our properties?
+
+```{r}
+head(nyc_senate$features$properties)
+```
+
+And in the geometry?
+
+```{r}
+head(nyc_senate$features$geometry)
+```
+
+Each Senate district has a list of geospatial, lat/long coordinates that describe the shape and position of the district.
+
+As you can see, the geoJSON is much simpler (some would say *simplistic*) than a shapefile.  Whether this is good news or bad news depends on your point of view and how much geospatial richness and metadata you want out of your map.
+
+### As Geographic Data
+
+Now, let's grab that geoJSON again, but this time, bring it directly through rgdal into a SpatialPolygonDataFrame:
+
+```{r}
+nyc_senate <- readOGR('http://data.beta.nyc//dataset/f6738713-ab52-4508-aad9-778f5b651413/resource/712bdd42-5f17-4441-bb43-72bb37d85df6/download/83427cd54009438ab3388dd5ed3611cenycstatesenatedistricts2013.geojson')
+```
+
+We'll see it has the same structure as our shapefile geographic data did -- rgdal is nice that way!
+
+```{r}
+
+```
+
+Let's map it, again, in `leaflet`, using what we practiced above with shapefiles.
+
+```{r}
+nyc_senate_map <- leaflet(nyc_senate) %>%
+  setView(lng = mean(nyc_senate@bbox['x',], na.rm=TRUE), 
+          lat = mean(nyc_senate@bbox['y',], na.rm=TRUE), zoom = 11) %>%
+  addPolygons(
+    weight = 1,  # border thickness
+    opacity = 0.5, # border opacity
+    color = "grey", # border color
+    fillColor = "white",
+    fillOpacity = 1,
+    label = nyc_senate$StSenDist,
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", 
+                    "padding" = "3px 8px"),
+                    "textsize" = "13px")
+  ) %>%
+  suspendScroll()
+
+nyc_senate_map
+```
+
+

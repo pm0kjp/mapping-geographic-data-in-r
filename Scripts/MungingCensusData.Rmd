@@ -1,0 +1,127 @@
+---
+title: "Munging Census Data"
+author: "Joy Payton"
+date: "2/26/2019"
+output: 
+  html_document: 
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE)
+```
+
+## "Munging"
+
+So, I thought I'd check out the use over time of the word _munging_, and I found some cool things while Googling.  I haven't gone the extra mile to figure out what 19th century "munging" refers to!
+
+```{r echo=FALSE}
+knitr::include_graphics('../Media/munging_use_over_time.png', dpi = 100)
+```
+
+Also [this](https://en.oxforddictionaries.com/definition/mung): "1960s: origin uncertain (frequently said to be an acronym from _mash until no good_)."
+
+To be clear, here I mean by _munging_ the trial-and-error reshaping, filtering, and transformation of data to get it into a form that is useful.  It may involve "mashing", but not "until no good"!
+
+## The United States Census Bureau
+
+The US Census Bureau is bound by the Constitution to do a full (not sampled) census of all people within the US every ten years.  This determines the number of seats in the US House of Representatives and are used to draw district boundaries.  This is the _Decennial Census_.  There are two additional censuses performed by the Census Bureau that we won't talk about: an _Economic Census_ done every five years and the _Census of Governments_ done every five years.
+
+In addition to the full population census, the Census Bureau is also responsible for conducting the _American Community Survey_ (ACS) which uses sampling and inferential statistics to make estimates of things like:
+
+* Education levels
+* Poverty
+* Mean and median income
+* Computer usage
+* Crime
+* and much more!
+
+Note that the ACS also has one and five year versions.  Five year ACS data includes estimates for the entire country, while one year versions concentrate on population-dense areas and have smaller sample sizes.  This means that if you're doing analysis on, say, NYC, you can get very up-to-date (but less reliable) 1-year estimates, but if you're interested in studying Iowa, or getting NYC estimates with a smaller margin of error, you'd be better off with a somewhat less current but broader and more reliable 5 year ACS.  That's what we'll use in this script -- five year ACS estimates.
+
+Census data is collected at and aggregated to various levels:
+
+* The country as a whole
+* States / territories
+* Counties
+* ZIP Code Tabulation Areas (approximations of ZIP Codes)
+* Urban areas
+* Census Tracts (1-8k people)
+* Census Block Groups
+* Census Blocks (600 - 3k people)
+* and probably more I've forgotten about!
+
+The [website of the Census Bureau](https://www.census.gov) is a veritable treasure trove of data about populations.  It can be hard to manage the sheer quantity of data.
+
+## Access to Census Data
+
+### APIs
+
+Plan to work with Census Bureau data over and over again?  It's worth the time to use APIs.
+
+The Census Bureau offers __free__ API credentials (and a Slack channel, and more) at their [Developers page](https://www.census.gov/developers/).  Among their [list of API endpoints](https://www.census.gov/data/developers/data-sets.html) is a geocoding service -- which is how we can translate street addresses to a geospatial point (lat/long).
+
+[`tidycensus`](https://cran.r-project.org/package=tidycensus) is a package that helps you work with specific APIs offered by the Census Bureau.
+
+There's another script that offers assistance in using the Census API!
+
+### Web GUI
+
+You can also manually choose data and download it using the American Fact Finder (<https://factfinder.census.org>).  A few asides here: 
+
+* you will probably want to transpose rows and columns
+* you will probably want to leave the optional boxes unchecked.
+
+## Caveats
+
+### Granularity of Data
+
+Census data is very very specific.  If, for example, you're interested in income data for a given tract, you might find columns that include descriptions like:
+
+* INCOME AND BENEFITS (IN 2017 INFLATION-ADJUSTED DOLLARS) - Total households - Less than $10,000
+* INCOME AND BENEFITS (IN 2017 INFLATION-ADJUSTED DOLLARS) - Total households - $10,000 to $14,999
+* INCOME AND BENEFITS (IN 2017 INFLATION-ADJUSTED DOLLARS) - Total households - $15,000 to $24,999
+* INCOME AND BENEFITS (IN 2017 INFLATION-ADJUSTED DOLLARS) - Total households - $25,000 to $34,999
+* ... and so on ..
+
+Or:
+
+* INCOME AND BENEFITS (IN 2017 INFLATION-ADJUSTED DOLLARS) - Families - Less than $10,000
+* INCOME AND BENEFITS (IN 2017 INFLATION-ADJUSTED DOLLARS) - Families - $10,000 to $14,999
+* ... and so on ...
+
+Or: 
+
+* INCOME AND BENEFITS (IN 2017 INFLATION-ADJUSTED DOLLARS) - With Supplemental Security Income - Mean Supplemental Security Income (dollars)
+* INCOME AND BENEFITS (IN 2017 INFLATION-ADJUSTED DOLLARS) - With cash public assistance income - Mean cash public assistance income (dollars)
+* ... and so on...
+
+Or:
+
+* INCOME AND BENEFITS (IN 2017 INFLATION-ADJUSTED DOLLARS) - Median earnings for workers (dollars)
+* INCOME AND BENEFITS (IN 2017 INFLATION-ADJUSTED DOLLARS) - Median earnings for male full-time, year-round workers (dollars)
+* INCOME AND BENEFITS (IN 2017 INFLATION-ADJUSTED DOLLARS) - Median earnings for female full-time, year-round workers (dollars)
+
+You will likely need to do a bit of honing your question:  families only, or all households (say, a single person, or a group home)?  Do you want to look at statistics across the board or specify race, sex, or hispanicity?  What is considered income, and what benefits?  Do you want to include SSI?  Measure it separately?  What about welfare?
+
+### Estimates and MOEs
+
+You'll also find, for any given measure, a few variables related to it:
+
+* Estimate -- used when a scalar count or value is needed, like median income or number of white women
+* Margin of error -- used to indicate the precision of the estimate
+* Percent -- used when a percent is needed, like percent of families below the poverty line
+* Percent Margin of Error -- used to indicate the precision of the percent estimate
+
+Note that all four columns are generally present although only two make sense for any given measure!
+
+### Sparsity
+
+Every area of the US belongs to a census tract, even if it's an area in which people don't normally live (like a park or lake or airport).  That's why you might see census tracts with little to no data.  Don't panic if you see that a few tracts have very sparse data -- they may be one of these special tracts.
+
+## Let's 
+
+
+
+

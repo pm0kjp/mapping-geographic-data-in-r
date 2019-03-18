@@ -20,7 +20,7 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRU
 library(kableExtra)
 ```
 
-## APU Setup
+## API Setup
 
 First, I'm going to pull in my API key.  You'll want to change the line below or put a file containing your API key in the place specified below.  I've excluded the "Private" folder from being included in the GitHub repo, so you'll want to add your own on your local machine.
 
@@ -37,6 +37,8 @@ census_api_key(census_key)
 
 ## American Community Survey
 
+### Understanding Variables 
+
 What variables are available, say, for the five year American Community Survey?  I need to know the end year of the survey I care about, so I can go to <https://www.census.gov/programs-surveys/acs> to discover that 2017 is the latest year end.  Scroll through the variables below ... there are a LOT.
 
 ```{r}
@@ -45,6 +47,7 @@ kable(acs5_vars) %>%
   kable_styling() %>%
   scroll_box(width = "100%", height = "300px")
 ```
+
 
 There are `r nrow(acs5_vars)` variables that describe `r length(unique(acs5_vars$concept))` unique concepts.
 
@@ -56,7 +59,9 @@ kable(unique(acs5_vars$concept)) %>%
   scroll_box(width = "100%", height = "300px")
 ```
 
-Maybe we want to hone in on, say, median household income for the census tracts that comprise New York City.  Specifically, I want the variable `B19113_001`.  In my use of `get_acs` I can use geographical names, like "New York", or the FIPS code for those places.  Here, to foster ease of reading, I've used the county names of the five boroughs.
+### Using `get_acs` With Names
+
+Maybe we want to hone in on, say, median household income for the census tracts that comprise New York City.  Specifically, I want the variable `B19113_001`.  In my use of `get_acs` I can use geographical names, like "New York", or the FIPS code for those places.  Here, to foster ease of reading, I've used the county names of the five boroughs.  
 
 ```{r}
 nyc_median_income <- get_acs(geography = "tract",
@@ -66,7 +71,23 @@ nyc_median_income <- get_acs(geography = "tract",
                              survey = "acs5")
 ```
 
-There are `r nrow(nyc_median_income)` census tracts represented!  Let's take a peek at this data frame and get some summary statistics.
+### Using `get_acs` With Codes
+
+The use of strings, like I've done here, can be very error prone.  Let's do something similar for the City of Philadelphia area using FIPS codes. I can go to <https://www.census.gov/geo/reference/ansi.html> and discover that the FIPS code for the state of Pennsylvania is 42, and the code for the county I'm interested in, Philadelphia County, is 101.
+
+```{r}
+philly_median_income <- get_acs(geography = "tract",
+                             variables = "B19113_001",
+                             state = 42,
+                             county = 101,
+                             survey = "acs5")
+```
+
+### Peeking at our Data
+
+There are `r nrow(nyc_median_income)` census tracts represented in `nyc_median_income` and `r nrow(philly_median_income)` in `philly_median_income`.
+
+Let's take a peek at the New York City data frame and get some summary statistics.
 
 ```{r}
 kable(head(nyc_median_income)) %>%
@@ -77,3 +98,6 @@ kable(summary(nyc_median_income)) %>%
 
 Why are some of my rows missing data?  They could be tracts that correspond to areas like parks or rivers where there's only a transient population and there's no meaningful way to make predictions about median income.  When we map this data, we might understand more.
 
+## Decennial Census
+
+What if we want data from the decennial census?

@@ -1,0 +1,237 @@
+---
+title: "Webinar Sneak Peek"
+author: "Joy Payton"
+date: "3/18/2019"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE)
+library(printr)
+```
+
+## Get An Interesting GeoJSON File
+
+Geospatial data can be expressed in maps, which can offer amazing levels of data density.
+
+You're probably familiar with JSON, which is frequently used to store and pass data between applications.  GeoJSON applies JSON structure to geospatial data in a single JSON file.  Let's get data about child blood lead levels from the City of Philadelphia:
+
+```{r}
+library(rgdal)
+philly_lead_map <- readOGR('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+child_blood_lead_levels_by_ct&filename=child_blood_lead_levels_by_ct&format=geojson&skipfields=cartodb_id')
+```
+
+## Sanity Checks
+
+Let's take a peek at the tabular data associated with this geospatial object (not the actual map)
+
+```{r}
+head(philly_lead_map@data)
+summary(philly_lead_map@data)
+```
+
+And let's take a quick peek at the map, to make sure there are no initial, obvious problems:
+
+```{r}
+library(leaflet)
+library(leaflet.extras)
+
+leaflet(philly_lead_map) %>%
+  setView(lng = mean(philly_lead_map@bbox['x',], na.rm=TRUE), 
+          lat = mean(philly_lead_map@bbox['y',], na.rm=TRUE), zoom = 11) %>%
+  addPolygons() 
+```
+
+Well, the defaults are ugly, but worse, we see some "holes" in our map.  This problem was also evident in the data, which had too few rows.
+
+We're missing some tracts, because Philly has 384 tracts, and this data only has 380.  Clearly some tracts were not surveyed. Let's get all of Philly's tracts, since we want to map the entire city, and provide imputation as needed.  We can get complete GeoJSON file for all the Census tracts in Philly.
+
+## Fill in any Geospatial Holes
+
+```{r}
+full_philadelphia_map <- readOGR('http://data.phl.opendata.arcgis.com/datasets/8bc0786524a4486bb3cf0f9862ad0fbf_0.geojson')
+```
+
+What kind of data is in this map?
+
+```{r}
+head(full_philadelphia_map@data)
+```
+
+Oh, okay, it has Census Tract data.  Is it complete? Let's check... does our data frame now have 384 rows?
+
+```{r}
+nrow(full_philadelphia_map@data)
+```
+
+Let's do a quick mapping sanity check.  We'll change the default color and line width settings this time around:
+
+```{r}
+leaflet(full_philadelphia_map) %>%
+  setView(lng = mean(full_philadelphia_map@bbox['x',], na.rm=TRUE), 
+          lat = mean(full_philadelphia_map@bbox['y',], na.rm=TRUE), zoom = 11) %>%
+  addPolygons(
+    weight = 1,  # border thickness
+    opacity = 0.5, # border opacity
+    color = "grey", # border color
+    fillColor = "white",
+    fillOpacity = 1
+  ) %>%
+  suspendScroll()  # Handy to stop those accidental "scrolling by" zooms
+```
+
+
+This map looks great, and the tabular data might prove useful, too, for things like a "prettier" display of the Census Tract name, instead of just a long number.  Let's combine our lead data into this fuller map.
+
+## Merging Tabular Data
+
+Merging in this case is pretty simple -- we just have to bring in the lead data and make sure our "hinge" (overlapping field) is set up properly:
+
+```{r}
+full_philadelphia_map@data <- merge(x = philly_lead_map@data,
+                              y = full_philadelphia_map@data,
+                              by.x = "census_tract",
+                              by.y = "GEOID10",
+                              all = TRUE)
+```
+
+
+## Plot Color-Coded Data (Choropleth)
+
+Let's see what our lead levels look like without any imputation of missing values:
+
+```{r}
+lead_palette <- colorBin("Blues", domain = full_philadelphia_map$perc_5plus, bins = 10, na.color = "#aaaaaa")
+
+leaflet(full_philadelphia_map) %>%
+  setView(lng = mean(full_philadelphia_map@bbox['x',], na.rm=TRUE), 
+          lat = mean(full_philadelphia_map@bbox['y',], na.rm=TRUE), zoom = 11) %>%
+  addPolygons(
+    weight = 1,  # border thickness
+    opacity = 0.5, # border opacity
+    color = "grey", # border color
+    fillColor = ~lead_palette(full_philadelphia_map@data$perc_5plus),
+    fillOpacity = 1
+  ) %>%
+  suspendScroll()
+```
+
+## Impute Missing Data
+
+Let's do some intelligent imputation of missing values.  First, we identify the neighbors for each tract:
+
+```{r}
+library(spdep)
+coords <- coordinates(full_philadelphia_map)
+tracts <- row.names(as(full_philadelphia_map, "data.frame"))
+knn10 <- knn2nb(knearneigh(coords, k = 10), row.names = tracts)
+knn10 <- include.self(knn10)
+```
+
+Impute data for missing rows.  Note that we know that the actual number of children testing with high blood lead levels in the case of imputation is either 1, 2, 3, 4, or 5 children, so we know the actual possible percentages, if we know how many children were tested (true except for the "missing" tracts we had to fill in).  So we'll do knn imputation, but if the knn imputation comes in lower than the lowest possible suppressed percent, we'll just toss in the lowest possible, and do a similar check with the highest possible suppressed percent.
+
+```{r}
+for (row in 1:nrow(full_philadelphia_map@data)) {
+  
+  # is this row missing the percentage of children testing with high blood lead?
+  if (is.na(full_philadelphia_map$perc_5plus[row])) {  
+    
+    # lowest possible pct (if we know # of kids screened)
+    low_pct <- (1/full_philadelphia_map$num_screen[row])*100  
+    
+    # highest possible pct (if we know # of kids screened)
+    high_pct <- (5/full_philadelphia_map$num_screen[row])*100 
+    
+    # take the mean of our neighbors
+    knn_pct <- mean(full_philadelphia_map$perc_5plus[unlist(knn10[row])], na.rm=TRUE) 
+    
+    
+    if (!is.na(low_pct) & !is.na(knn_pct) & low_pct > knn_pct) { 
+      # knn lower than lowest?  Use lowest.
+      full_philadelphia_map$perc_5plus[row] <- low_pct                  
+    }
+    
+    else if (!is.na(high_pct) & !is.na(knn_pct) & high_pct < knn_pct) {  
+      # knn higher than highest? Use highest
+      full_philadelphia_map$perc_5plus[row] <- high_pct
+    }
+    
+    else {
+      # Otherwise, use knn.
+      full_philadelphia_map$perc_5plus[row] <- knn_pct   
+    }
+    
+  }
+}
+```
+
+
+## Re-map that Jawn
+
+
+```{r}
+lead_palette <- colorBin("Blues", domain = full_philadelphia_map$perc_5plus, bins = 10, na.color = "#cccccc")
+
+leaflet(full_philadelphia_map) %>%
+  setView(lng = mean(full_philadelphia_map@bbox['x',], na.rm=TRUE), 
+          lat = mean(full_philadelphia_map@bbox['y',], na.rm=TRUE), zoom = 11) %>%
+  addPolygons(
+    weight = 1,  # border thickness
+    opacity = 0.5, # border opacity
+    color = "grey", # border color
+    fillColor = ~lead_palette(full_philadelphia_map@data$perc_5plus),
+    fillOpacity = 1
+  )
+```
+
+## Enrich!
+
+And here we want to pull in our local file, which is a simplified version of data from the American Community Survey conducted by the Census Bureau.  Let's see what is contains.
+
+```{r}
+economic_data <- read.csv("../Data/philly_census.csv")
+head(economic_data)
+```
+
+This is selected economic characteristics of various census tracts.  Let's combine the data here with our map, and use labels to allow people to understand the data better:
+
+```{r}
+full_philadelphia_map@data <- merge(x=full_philadelphia_map@data,
+                                    y=economic_data,
+                                    by = "census_tract",
+                                    all = TRUE)
+
+str(full_philadelphia_map@data)
+```
+
+Let's create some useful labels:
+
+```{r}
+labels <- sprintf(
+  "<strong>%s</strong><br/>
+  Families Below Poverty Line (%%): %g <br/>
+  Children With High Blood Lead Levels (%%): %g",
+  full_philadelphia_map$NAMELSAD10, 
+  full_philadelphia_map$pct_families_below_poverty_line,
+  full_philadelphia_map$perc_5plus
+) %>% lapply(htmltools::HTML)
+```
+
+```{r}
+lead_palette <- colorBin("Blues", domain = full_philadelphia_map$perc_5plus, bins = 10, na.color = "#cccccc")
+
+leaflet(full_philadelphia_map) %>%
+  setView(lng = mean(full_philadelphia_map@bbox['x',], na.rm=TRUE), 
+          lat = mean(full_philadelphia_map@bbox['y',], na.rm=TRUE), zoom = 11) %>%
+  addPolygons(
+    weight = 1,  # border thickness
+    opacity = 0.5, # border opacity
+    color = "grey", # border color
+    fillColor = ~lead_palette(full_philadelphia_map@data$perc_5plus),
+    fillOpacity = 1,
+    label = labels
+  )
+```

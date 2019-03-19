@@ -78,7 +78,8 @@ leaflet(full_philadelphia_map) %>%
     opacity = 0.5, # border opacity
     color = "grey", # border color
     fillColor = "white",
-    fillOpacity = 1
+    fillOpacity = 1,
+    label = full_philadelphia_map@data$NAMELSAD10
   ) %>%
   suspendScroll()  # Handy to stop those accidental "scrolling by" zooms
 ```
@@ -88,14 +89,21 @@ This map looks great, and the tabular data might prove useful, too, for things l
 
 ## Merging Tabular Data
 
+**WARNING**
+
+`merge` will reorder your rows, and that breaks the relationship between the rows of tabular data and the corresponding polygons.  Not what you want!  So we're going to keep track of the order thanks to the helpful "OBJECTID" variable, which is super helpful.  If you're working with data that doesn't have a column like this, just add it, so you can keep track of what the original order was.
+
+
 Merging in this case is pretty simple -- we just have to bring in the lead data and make sure our "hinge" (overlapping field) is set up properly:
 
 ```{r}
-full_philadelphia_map@data <- merge(x = philly_lead_map@data,
-                              y = full_philadelphia_map@data,
-                              by.x = "census_tract",
-                              by.y = "GEOID10",
-                              all = TRUE)
+merged <-  merge(x = philly_lead_map@data,
+                 y = full_philadelphia_map@data,
+                 by.x = "census_tract",
+                 by.y = "GEOID10",
+                 all = TRUE)
+
+full_philadelphia_map@data <- merged[order(merged$OBJECTID),]
 ```
 
 
@@ -104,7 +112,7 @@ full_philadelphia_map@data <- merge(x = philly_lead_map@data,
 Let's see what our lead levels look like without any imputation of missing values:
 
 ```{r}
-lead_palette <- colorBin("Blues", domain = full_philadelphia_map$perc_5plus, bins = 10, na.color = "#aaaaaa")
+lead_palette <- colorBin("Blues", domain = full_philadelphia_map@data$perc_5plus, bins = 10, na.color = "#aaaaaa")
 
 leaflet(full_philadelphia_map) %>%
   setView(lng = mean(full_philadelphia_map@bbox['x',], na.rm=TRUE), 
@@ -114,7 +122,8 @@ leaflet(full_philadelphia_map) %>%
     opacity = 0.5, # border opacity
     color = "grey", # border color
     fillColor = ~lead_palette(full_philadelphia_map@data$perc_5plus),
-    fillOpacity = 1
+    fillOpacity = 1,
+    label = full_philadelphia_map@data$NAMELSAD10
   ) %>%
   suspendScroll()
 ```
@@ -133,35 +142,44 @@ knn10 <- include.self(knn10)
 
 Impute data for missing rows.  Note that we know that the actual number of children testing with high blood lead levels in the case of imputation is either 1, 2, 3, 4, or 5 children, so we know the actual possible percentages, if we know how many children were tested (true except for the "missing" tracts we had to fill in).  So we'll do knn imputation, but if the knn imputation comes in lower than the lowest possible suppressed percent, we'll just toss in the lowest possible, and do a similar check with the highest possible suppressed percent.
 
+Note that knn averaging might also give us an NA, because there are areas with no nearby tracts that were tested.  In that case, just give us whatever the percentage is for 3 children testing positive (the mean and median value of all possibilities).
+
 ```{r}
 for (row in 1:nrow(full_philadelphia_map@data)) {
   
   # is this row missing the percentage of children testing with high blood lead?
-  if (is.na(full_philadelphia_map$perc_5plus[row])) {  
+  if (is.na(full_philadelphia_map@data$perc_5plus[row])) {  
     
     # lowest possible pct (if we know # of kids screened)
-    low_pct <- (1/full_philadelphia_map$num_screen[row])*100  
+    low_pct <- (1/full_philadelphia_map@data$num_screen[row])*100  
     
     # highest possible pct (if we know # of kids screened)
-    high_pct <- (5/full_philadelphia_map$num_screen[row])*100 
+    high_pct <- (5/full_philadelphia_map@data$num_screen[row])*100 
+    
+    # the "expected value" or median (and mean) number of kiddos with high lead
+    median_pct <- (3/full_philadelphia_map@data$num_screen[row])*100 
     
     # take the mean of our neighbors
-    knn_pct <- mean(full_philadelphia_map$perc_5plus[unlist(knn10[row])], na.rm=TRUE) 
+    knn_pct <- mean(full_philadelphia_map@data$perc_5plus[unlist(knn10[row])], na.rm=TRUE) 
     
+    if (is.na(knn_pct)) {
+      # no way to determine a good guess by neighbors?  Choose median.
+      full_philadelphia_map@data$perc_5plus[row] <- median_pct
+    }
     
     if (!is.na(low_pct) & !is.na(knn_pct) & low_pct > knn_pct) { 
       # knn lower than lowest?  Use lowest.
-      full_philadelphia_map$perc_5plus[row] <- low_pct                  
+      full_philadelphia_map@data$perc_5plus[row] <- low_pct                  
     }
     
     else if (!is.na(high_pct) & !is.na(knn_pct) & high_pct < knn_pct) {  
       # knn higher than highest? Use highest
-      full_philadelphia_map$perc_5plus[row] <- high_pct
+      full_philadelphia_map@data$perc_5plus[row] <- high_pct
     }
     
     else {
       # Otherwise, use knn.
-      full_philadelphia_map$perc_5plus[row] <- knn_pct   
+      full_philadelphia_map@data$perc_5plus[row] <- knn_pct   
     }
     
   }
@@ -173,7 +191,7 @@ for (row in 1:nrow(full_philadelphia_map@data)) {
 
 
 ```{r}
-lead_palette <- colorBin("Blues", domain = full_philadelphia_map$perc_5plus, bins = 10, na.color = "#cccccc")
+lead_palette <- colorBin("Blues", domain = full_philadelphia_map@data$perc_5plus, bins = 10, na.color = "#cccccc")
 
 leaflet(full_philadelphia_map) %>%
   setView(lng = mean(full_philadelphia_map@bbox['x',], na.rm=TRUE), 
@@ -199,10 +217,13 @@ head(economic_data)
 This is selected economic characteristics of various census tracts.  Let's combine the data here with our map, and use labels to allow people to understand the data better:
 
 ```{r}
-full_philadelphia_map@data <- merge(x=full_philadelphia_map@data,
-                                    y=economic_data,
-                                    by = "census_tract",
-                                    all = TRUE)
+merged_again <- merge(x=full_philadelphia_map@data,
+                      y=economic_data,
+                      by = "census_tract",
+                      all = TRUE)
+
+full_philadelphia_map@data <- merged_again[order(merged_again$OBJECTID),]
+
 
 str(full_philadelphia_map@data)
 ```
@@ -214,14 +235,14 @@ labels <- sprintf(
   "<strong>%s</strong><br/>
   Families Below Poverty Line (%%): %g <br/>
   Children With High Blood Lead Levels (%%): %g",
-  full_philadelphia_map$NAMELSAD10, 
-  full_philadelphia_map$pct_families_below_poverty_line,
-  full_philadelphia_map$perc_5plus
+  full_philadelphia_map@data$NAMELSAD10, 
+  full_philadelphia_map@data$pct_families_below_poverty_line,
+  full_philadelphia_map@data$perc_5plus
 ) %>% lapply(htmltools::HTML)
 ```
 
 ```{r}
-lead_palette <- colorBin("Blues", domain = full_philadelphia_map$perc_5plus, bins = 10, na.color = "#cccccc")
+lead_palette <- colorBin("Blues", domain = full_philadelphia_map@data$perc_5plus, bins = 10, na.color = "#cccccc")
 
 leaflet(full_philadelphia_map) %>%
   setView(lng = mean(full_philadelphia_map@bbox['x',], na.rm=TRUE), 

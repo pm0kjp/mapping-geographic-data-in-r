@@ -1,6 +1,5 @@
 .DS_Store
 */.DS_Store
 Scripts/*_cache
-Scripts/*.html
 Scripts/tl_2017*
 Private

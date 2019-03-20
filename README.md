@@ -1,5 +1,15 @@
 # Mapping Geographic Data in R
 
+--------
+
+__ODSC East 2019 Warm Up Webinar Participants:__
+
+You want to check out [the script for the webinar](Scripts/WebinarSneakPeek.Rmd) and [the rendered html (you'll want to download and open it)](Scripts/WebinarSneakPeek.html).
+
+
+
+--------
+
 Workshop materials for the "Mapping Geographic Data in R" workshop given by Joy Payton as part of ODSC East, held in Boston in spring 2019
 
 ## Scripts

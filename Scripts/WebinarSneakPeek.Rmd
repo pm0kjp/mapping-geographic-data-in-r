@@ -130,7 +130,7 @@ leaflet(full_philadelphia_map) %>%
 
 ## Impute Missing Data
 
-Let's do some intelligent imputation of missing values.  First, we identify the neighbors for each tract:
+Let's do some imputation of missing values.  We'll use knn imputation in part.  To do that, we first identify the neighbors for each tract:
 
 ```{r}
 library(spdep)
@@ -140,20 +140,41 @@ knn10 <- knn2nb(knearneigh(coords, k = 10), row.names = tracts)
 knn10 <- include.self(knn10)
 ```
 
-Impute data for missing rows.  Note that we know that the actual number of children testing with high blood lead levels in the case of imputation is either 1, 2, 3, 4, or 5 children, so we know the actual possible percentages, if we know how many children were tested (true except for the "missing" tracts we had to fill in).  So we'll do knn imputation, but if the knn imputation comes in lower than the lowest possible suppressed percent, we'll just toss in the lowest possible, and do a similar check with the highest possible suppressed percent.
+Impute data for missing rows.  
 
-Note that knn averaging might also give us an NA, because there are areas with no nearby tracts that were tested.  In that case, just give us whatever the percentage is for 3 children testing positive (the mean and median value of all possibilities).
+We have two cases here:
+
+* tracts that were included in the lead data set but have redacted numbers (1-5 positives)
+* tracts that were lacking in the lead data set
+
+Let's first think about intelligent imputation on the census tracts that were in the lead data dataset, but with redacted numbers.  That's almost all our missing data.
+
+### Redacted Data
+
+We know that the actual number of children testing with high blood lead levels in the case of imputation is either 1, 2, 3, 4, or 5 children, so we know the actual possible percentages. So we can do knn imputation, but if the knn imputation comes in lower than the lowest possible percent, we'll just toss in the lowest possible, and do a similar check with the highest possible percent.
+
+Note that knn averaging will often give us an NA, because there are large areas of Philadelphia with no nearby tracts that were tested.  In that case, we can simply impute whatever the percentage is for 3 children testing positive (the median value of all possibilities).
+
+### Completely Missing Data
+
+In the case of completely missing data, let's do a second round of imputation.  We'll let the first round go and fill in the gaps of redacted data.  Then, we'll have good values for neighbors and can do knn imputation.
+
+
+### Impute
+
+So, first we'll handle redacted data:
 
 ```{r}
 for (row in 1:nrow(full_philadelphia_map@data)) {
   
-  # is this row missing the percentage of children testing with high blood lead?
-  if (is.na(full_philadelphia_map@data$perc_5plus[row])) {  
+  # is this row intentionally redacted?
+  if (!is.na(full_philadelphia_map@data$data_redacted[row]) &
+      full_philadelphia_map@data$data_redacted[row] == 1) {  
     
-    # lowest possible pct (if we know # of kids screened)
+    # lowest possible pct 
     low_pct <- (1/full_philadelphia_map@data$num_screen[row])*100  
     
-    # highest possible pct (if we know # of kids screened)
+    # highest possible pct 
     high_pct <- (5/full_philadelphia_map@data$num_screen[row])*100 
     
     # the "expected value" or median (and mean) number of kiddos with high lead
@@ -166,17 +187,14 @@ for (row in 1:nrow(full_philadelphia_map@data)) {
       # no way to determine a good guess by neighbors?  Choose median.
       full_philadelphia_map@data$perc_5plus[row] <- median_pct
     }
-    
-    if (!is.na(low_pct) & !is.na(knn_pct) & low_pct > knn_pct) { 
+    else if (!is.na(low_pct) & !is.na(knn_pct) & low_pct > knn_pct) { 
       # knn lower than lowest?  Use lowest.
       full_philadelphia_map@data$perc_5plus[row] <- low_pct                  
     }
-    
     else if (!is.na(high_pct) & !is.na(knn_pct) & high_pct < knn_pct) {  
       # knn higher than highest? Use highest
       full_philadelphia_map@data$perc_5plus[row] <- high_pct
     }
-    
     else {
       # Otherwise, use knn.
       full_philadelphia_map@data$perc_5plus[row] <- knn_pct   
@@ -187,8 +205,27 @@ for (row in 1:nrow(full_philadelphia_map@data)) {
 ```
 
 
+Now let's handle the completely missing data:
+
+```{r}
+for (row in 1:nrow(full_philadelphia_map@data)) {
+  if (is.na(full_philadelphia_map@data$perc_5plus[row])) {
+     full_philadelphia_map@data$perc_5plus[row] <- mean(full_philadelphia_map@data$perc_5plus[unlist(knn10[row])], na.rm=TRUE) 
+  }
+}
+```
+
+
 ## Re-map that Jawn
 
+```
+jawn
+/jôn/
+
+noun DIALECT US
+(chiefly in eastern Pennsylvania) used to refer to a thing, place, person, or event that one need not or cannot give a specific name to.
+"these jawns are very inexpensive"
+```
 
 ```{r}
 lead_palette <- colorBin("Blues", domain = full_philadelphia_map@data$perc_5plus, bins = 10, na.color = "#cccccc")
@@ -202,7 +239,8 @@ leaflet(full_philadelphia_map) %>%
     color = "grey", # border color
     fillColor = ~lead_palette(full_philadelphia_map@data$perc_5plus),
     fillOpacity = 1
-  )
+  ) %>%
+  suspendScroll()
 ```
 
 ## Enrich!
@@ -254,5 +292,41 @@ leaflet(full_philadelphia_map) %>%
     fillColor = ~lead_palette(full_philadelphia_map@data$perc_5plus),
     fillOpacity = 1,
     label = labels
-  )
+  ) %>%
+  suspendScroll()
+```
+
+But this doesn't really show us the impact of poverty overall.  Ideally we'd love to be able to have a dual-purpose choropleth.  Let's do that now, using the keyword "group" and some layer controls.
+
+
+```{r}
+poverty_palette <- colorBin("Reds", domain = full_philadelphia_map@data$pct_families_below_poverty_line, bins = 10, na.color = "#cccccc")
+
+
+leaflet(full_philadelphia_map) %>%
+  setView(lng = mean(full_philadelphia_map@bbox['x',], na.rm=TRUE), 
+          lat = mean(full_philadelphia_map@bbox['y',], na.rm=TRUE), zoom = 11) %>%
+  addPolygons(
+    weight = 1,  # border thickness
+    opacity = 0.5, # border opacity
+    color = "grey", # border color
+    fillColor = ~lead_palette(full_philadelphia_map@data$perc_5plus),
+    fillOpacity = 0.5,
+    label = labels,
+    group = "Lead Level"
+  ) %>%
+    addPolygons(
+    weight = 1,  # border thickness
+    opacity = 0.5, # border opacity
+    color = "grey", # border color
+    fillColor = ~poverty_palette(full_philadelphia_map@data$pct_families_below_poverty_line),
+    fillOpacity = 1,
+    label = labels,
+    group = "Poverty Level"
+  ) %>%
+  addLayersControl(
+    baseGroups = c("Lead Level", "Poverty Level"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  suspendScroll()
 ```

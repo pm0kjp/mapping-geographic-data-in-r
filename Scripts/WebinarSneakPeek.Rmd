@@ -291,7 +291,11 @@ leaflet(full_philadelphia_map) %>%
     color = "grey", # border color
     fillColor = ~lead_palette(full_philadelphia_map@data$perc_5plus),
     fillOpacity = 1,
-    label = labels
+    label = labels,
+    labelOptions = labelOptions(
+    style = list("font-weight" = "normal", padding = "3px 8px"),
+    textsize = "15px",
+    direction = "auto")
   ) %>%
   suspendScroll()
 ```
@@ -313,6 +317,10 @@ leaflet(full_philadelphia_map) %>%
     fillColor = ~lead_palette(full_philadelphia_map@data$perc_5plus),
     fillOpacity = 0.5,
     label = labels,
+    labelOptions = labelOptions(
+    style = list("font-weight" = "normal", padding = "3px 8px"),
+    textsize = "15px",
+    direction = "auto"),
     group = "Lead Level"
   ) %>%
     addPolygons(
@@ -322,6 +330,10 @@ leaflet(full_philadelphia_map) %>%
     fillColor = ~poverty_palette(full_philadelphia_map@data$pct_families_below_poverty_line),
     fillOpacity = 1,
     label = labels,
+    labelOptions = labelOptions(
+    style = list("font-weight" = "normal", padding = "3px 8px"),
+    textsize = "15px",
+    direction = "auto"),
     group = "Poverty Level"
   ) %>%
   addLayersControl(

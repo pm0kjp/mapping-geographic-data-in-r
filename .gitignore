@@ -1,5 +1,6 @@
 .DS_Store
 */.DS_Store
 Scripts/*_cache
-Scripts/tl_2017*
+Data/tl_2017*
 Private
+Scripts/.Rhistory

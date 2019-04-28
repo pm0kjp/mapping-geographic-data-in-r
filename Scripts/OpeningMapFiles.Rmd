@@ -17,23 +17,43 @@ knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALS
 
 ```
 
-## Shapefiles
 
-Shapefiles are actually groups of files.  You'll ordinarily find them as data sources from large organizations that can afford ESRI software licenses and use dedicated geographic information systems (GIS) for heavy-duty geographic data work.  Government agencies, for example, often use shapefiles.
+## A Few Preliminary Notes
 
-Here, we're going to download a file from the US Census Bureau and unzip it to a directory with the name of the file.  Make sure you change your working directory to whatever you want before executing this code, so that the files end up wherever you want them.
+### R Markdown
+
+This is an R Markdown File, which is a way to use R language, statistical or scientific reasoning about the code we write, and the output of R code all in one place.  You can export this interweaving of human and computer language as well as the code output to various formats -- pdf, Microsoft Word, or html.  Are you new to R Markdown?  Here are some great resources:
+
+* R Markdown was developed by RStudio.  Read their descriptions and examples on [their site](https://rmarkdown.rstudio.com/).
+* The RStudio gurus wrote a great book about it -- [check it out](https://bookdown.org/yihui/rmarkdown/)!
+
+### Reproducibility
+
+I aim to make this R Markdown file reproducible, with everything you need, but sometimes public data sources might fail, have URL changes, etc.  If you discover this, tweet me at @KJoyPayton and I'll get it right!  You can always get the latest version at https://github.com/pm0kjp/mapping-geographic-data-in-r.  
+
+**Importantly, the code in this file relies on there being a directory "../Data".  If you're running this file from a clone or fork of the GitHub repo, you should be fine.  Just make sure you're using the location of this script as your working directory!**
+
+## Intro to Maps: Shapefiles
+
+Shapefiles are actually groups of files.  You'll ordinarily find them as data sources from large organizations that can afford ESRI software licenses and use dedicated geographic information systems (GIS) for heavy-duty geographic data work.  Government agencies, for example, often use shapefiles.  You can read the standard for shapefiles at the [ESRI website](https://www.esri.com/library/whitepapers/pdfs/shapefile.pdf).
+
+Here, we're going to download a file from the US Census Bureau and unzip it to a directory with the name of the file.  
+
+Make sure you know what your working directory is (`getwd()`) and change your working directory to whatever you want, if needed, (`setwd()`) before executing this code, so that the files end up wherever you want them.  
+
+*Not connected to the internet or want to use the version of the data I downloaded into the GitHub repo?  As long as you're working from a full clone or fork of the original GitHub repository, you can skip the code block below, there's actually already a copy of what you want in /Data.*
 
 ```{r pennsylvania-shapefile}
-download.file("https://www2.census.gov/geo/tiger/TIGER2017/TRACT/tl_2017_42_tract.zip", "tl_2017_42_tract.zip")
-unzip("tl_2017_42_tract.zip", exdir = "tl_2017_42_tract")
+download.file("https://www2.census.gov/geo/tiger/TIGER2017/TRACT/tl_2017_42_tract.zip", "../Data/tl_2017_42_tract.zip")
+unzip("../Data/tl_2017_42_tract.zip", exdir = "../Data/tl_2017_42_tract")
 ```
 
 ### What's Inside?
 
 Let's peek inside the shapefile system.  You can look in your file system using your file explorer, or use the `list.files` command:
 
-```{r}
-list.files("tl_2017_42_tract")
+```{r list-shapefiles}
+list.files("../Data/tl_2017_42_tract")
 ```
 
 Looks like we have some xml, a shapefile (.shp), and a few other things (.dbf? .prj? .cpg? .shx?)
@@ -56,27 +76,38 @@ We'll start with the fun stuff, making a map object in R from the main file, ind
 
 Let's get our map data about Pennsylvania into an object.
 
-```{r}
+`rgdal`, the R Geospatial Data Abstraction Library, will make both Shapefiles and geoJSON look the same.
+
+```{r rgdal}
 #install.packages("rgdal")
 library(rgdal)
-pa <- readOGR(dsn = "tl_2017_42_tract", verbose = FALSE)
+pa <- readOGR(dsn = "../Data/tl_2017_42_tract", verbose = FALSE)
 ```
 
 Let's look inside:
 
-```{r}
+```{r pa-structure}
 str(pa, max.level = 2) # Let's not get too nested!
 ```
 
 Looks like we have a data frame, a list of polygons, a list that gives the order of plotting, a bounding box with lat/long, and projection data.  What's happenining in `@data`?
 
-```{r}
+```{r head-pa-data}
 head(pa@data)
 ```
 
+-----
+***Aside on FIPS***
+
+*"FIPS" stands for "Federal Information Processing Standards" but often, when you talk to people, they'll apply the term to whatever their particular federal data is... so, e.g., instead of "Census tract identifier" they'll say "the FIPS".  It's a term that therefore ends up having lots of meanings.*
+
+*There are FIPS codes for states, counties, tracts, and blocks, and when concatenated, they end up being a single geographic id.  For example, the state code for Pennsylvania is 42, the county code for Philadelphia is 101, and the census tract within Philadelphia where the main campus of the Children's Hospital of Philadelphia stands is 036900 (the last two digits can be thought of as 'after the decimal point', so this has a "human" name of Census Tract 369).  Further, the block group is 2, and the full block number is 2011, so you might be using a "GEOID" of 421010369002011 (if the block is included), or just 42101036900 (if you have tract level data only).*
+
+-----
+
 Now, let's actually draw a map from this, using leaflet.  We're going to set our map view on the mean latitude and longitude of our bounding box, and add the polygons found in our shapefile.  I'm also adding an extra, `suspendScroll`, so that unintended zooming is reduced.
 
-```{r}
+```{r map-pa}
 #install.packages("dplyr")
 #install.packages("leaflet")
 #install.packages("leaflet.extras")
@@ -96,7 +127,7 @@ pa_census_map
 
 You can drag and zoom in this map.  Let's make it a bit nicer looking with better color selection, line widths, and maybe some mouseover functionality.
 
-```{r}
+```{r custom-pa-map}
 custom_pa_census_map <- leaflet(pa) %>%
   setView(lng = mean(pa@bbox['x',], na.rm=TRUE), 
           lat = mean(pa@bbox['y',], na.rm=TRUE), zoom = 7) %>%
@@ -123,41 +154,40 @@ Pretty nifty, but let's recall that there were other files that came along with 
 
 #### Projection Information:
 
-```{r}
-writeLines(readLines("tl_2017_42_tract/tl_2017_42_tract.prj", n=5, warn=FALSE))
+```{r projection}
+writeLines(readLines("../Data/tl_2017_42_tract/tl_2017_42_tract.prj", n=5, warn=FALSE))
 ```
 
 #### Character Encoding:
 
-```{r}
-writeLines(readLines("tl_2017_42_tract/tl_2017_42_tract.cpg", n=5, warn=FALSE))
+```{r encoding}
+writeLines(readLines("../Data/tl_2017_42_tract/tl_2017_42_tract.cpg", n=5, warn=FALSE))
 ```
 
 #### Metadata:
 
-As an aside, this metadata might be more easily read just by doing readlines, but in case you've never used an xml parser, this might be helpful.
+As an aside, this metadata might be more easily read just by doing readlines, but in case you've never used an xml parser, this might be helpful practice!
 
-```{r}
+```{r xml-contents}
 #install.package("xml2")
 library(xml2)
-metadata_1 <- read_xml("tl_2017_42_tract/tl_2017_42_tract.shp.xml")
+metadata_1 <- read_xml("../Data/tl_2017_42_tract/tl_2017_42_tract.shp.xml")
 xml_contents(metadata_1)
 ```
 
 Let's look at one node in its entirety:
 
-```{r}
+```{r xml-node}
 xml_text(xml_find_first(metadata_1, ".//useconst"))
 ```
 
 Let's use `htmltidy` to look at a "pretty print" version of one of the shorter .xml files:
 
-```{r}
+```{r htmltidy}
 #install.packages("htmltidy")
 library(htmltidy)
 
-
-metadata_2 <- read_xml("tl_2017_42_tract/tl_2017_42_tract.shp.ea.iso.xml")
+metadata_2 <- read_xml("../Data/tl_2017_42_tract/tl_2017_42_tract.shp.ea.iso.xml")
 xml_tree_view(metadata_2, scroll = TRUE, height = "300px")
 ```
 
@@ -173,11 +203,16 @@ Let's get a GeoJSON file to open and look at!  This GeoJSON represents the New Y
 
 ### As JSON
 
+Not connected to the Internet?  Did you get this Rmd file by forking or cloning the GitHub repo?  Then  you can skip the long `URLencode` line and the `fromJSON` line that follows it, and run the commented out line instead.  Just comment / uncomment the code!
+
 ```{r}
 #install.packages("jsonlite")
 library(jsonlite)
 url <- URLencode('http://data.beta.nyc//dataset/f6738713-ab52-4508-aad9-778f5b651413/resource/712bdd42-5f17-4441-bb43-72bb37d85df6/download/83427cd54009438ab3388dd5ed3611cenycstatesenatedistricts2013.geojson')
 nyc_senate <- fromJSON(url)
+
+# Optional line if you don't want to load this from the NYC data source online:
+nyc_senate <- fromJSON("../Data/83427cd54009438ab3388dd5ed3611cenycstatesenatedistricts2013.geojson")
 ```
 
 Let's take a look inside `nyc_senate`.
@@ -194,10 +229,10 @@ What's in our properties?
 head(nyc_senate$features$properties)
 ```
 
-And in the geometry?
+And in the geometry?  We'll just look at the first row
 
 ```{r}
-head(nyc_senate$features$geometry)
+nyc_senate$features$geometry[1,]
 ```
 
 Each Senate district has a list of geospatial, lat/long coordinates that describe the shape and position of the district.
@@ -206,21 +241,27 @@ As you can see, the geoJSON is much simpler (some would say *simplistic*) than a
 
 ### As Geographic Data
 
-Now, let's grab that geoJSON again, but this time, bring it directly through rgdal into a SpatialPolygonDataFrame:
+Now, let's grab that geoJSON again, but this time, bring it directly through rgdal into a SpatialPolygonDataFrame.  As before, you can choose the local version of this data if you want.
 
 ```{r}
+# You can choose this one: 
+
 nyc_senate <- readOGR('http://data.beta.nyc//dataset/f6738713-ab52-4508-aad9-778f5b651413/resource/712bdd42-5f17-4441-bb43-72bb37d85df6/download/83427cd54009438ab3388dd5ed3611cenycstatesenatedistricts2013.geojson')
+
+# Or this one!
+
+#nyc_senate <- readOGR("../Data/83427cd54009438ab3388dd5ed3611cenycstatesenatedistricts2013.geojson")
 ```
 
 We'll see it has the same structure as our shapefile geographic data did -- rgdal is nice that way!
 
-```{r}
-
+```{r nyc-senate-structure}
+str(nyc_senate, max.level = 2)
 ```
 
 Let's map it, again, in `leaflet`, using what we practiced above with shapefiles.
 
-```{r}
+```{r nyc-senate-map}
 nyc_senate_map <- leaflet(nyc_senate) %>%
   setView(lng = mean(nyc_senate@bbox['x',], na.rm=TRUE), 
           lat = mean(nyc_senate@bbox['y',], na.rm=TRUE), zoom = 11) %>%
@@ -241,4 +282,8 @@ nyc_senate_map <- leaflet(nyc_senate) %>%
 nyc_senate_map
 ```
 
+## Next Steps
 
+Chances are, you have your own data to add to maps -- maybe the latitude and longitude of your customers' street addresses, or the number of stores in each zip code, or the average number of ER visits for patients from different zip codes. 
+
+The important thing is that whatever your proprietary data has as far as geography (Census tracts, zip codes, congressional districts, etc.), that your map has the same data, so that you can combine data using merge.

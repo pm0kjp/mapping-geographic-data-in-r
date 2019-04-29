@@ -96,16 +96,16 @@ Looks like we have a data frame, a list of polygons, a list that gives the order
 head(pa@data)
 ```
 
------
+-------------------------------------------------------------------------
+
 ***Aside on FIPS***
 
 *"FIPS" stands for "Federal Information Processing Standards" but often, when you talk to people, they'll apply the term to whatever their particular federal data is... so, e.g., instead of "Census tract identifier" they'll say "the FIPS".  It's a term that therefore ends up having lots of meanings.*
 
 *There are FIPS codes for states, counties, tracts, and blocks, and when concatenated, they end up being a single geographic id.  For example, the state code for Pennsylvania is 42, the county code for Philadelphia is 101, and the census tract within Philadelphia where the main campus of the Children's Hospital of Philadelphia stands is 036900 (the last two digits can be thought of as 'after the decimal point', so this has a "human" name of Census Tract 369).  Further, the block group is 2, and the full block number is 2011, so you might be using a "GEOID" of 421010369002011 (if the block is included), or just 42101036900 (if you have tract level data only).*
 
------
-
-Now, let's actually draw a map from this, using leaflet.  We're going to set our map view on the mean latitude and longitude of our bounding box, and add the polygons found in our shapefile.  I'm also adding an extra, `suspendScroll`, so that unintended zooming is reduced.
+-------------------------------------------------------------------------
+Now, let's actually draw a map from this, using leaflet.  We're going to set our map view on the mean latitude and longitude of our bounding box (note: this is optional, leaflet can figure it out, but it might be useful), and add the polygons found in our shapefile.  I'm also adding an extra, `suspendScroll`, so that unintended zooming is reduced.
 
 ```{r map-pa}
 #install.packages("dplyr")
@@ -284,6 +284,6 @@ nyc_senate_map
 
 ## Next Steps
 
-Chances are, you have your own data to add to maps -- maybe the latitude and longitude of your customers' street addresses, or the number of stores in each zip code, or the average number of ER visits for patients from different zip codes. 
+Chances are, you have your own data to add to maps -- maybe the latitude and longitude of your customers' street addresses, or the number of stores in each zip code, or the average number of ER visits for patients from different census tracts. 
 
 The important thing is that whatever your proprietary data has as far as geography (Census tracts, zip codes, congressional districts, etc.), that your map has the same data, so that you can combine data using merge.

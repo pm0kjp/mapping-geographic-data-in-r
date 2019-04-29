@@ -63,6 +63,12 @@ Census data is collected at and aggregated to various levels:
 
 The [website of the Census Bureau](https://www.census.gov) is a veritable treasure trove of data about populations.  It can be hard to manage the sheer quantity of data.
 
+## FIPS
+
+"FIPS" stands for "Federal Information Processing Standards" but often, when you talk to people, they'll apply the term to whatever their particular federal data is... so, e.g., instead of "Census tract identifier" they'll say "the FIPS".  It's a term that therefore ends up having lots of meanings.
+
+There are FIPS codes for states, counties, tracts, and blocks, and when concatenated, they end up being a single geographic id.  For example, the state code for Pennsylvania is 42, the county code for Philadelphia is 101, and the census tract within Philadelphia where the main campus of the Children's Hospital of Philadelphia stands is 036900 (the last two digits can be thought of as 'after the decimal point', so this has a "human" name of Census Tract 369).  Further, the block group is 2, and the full block number is 2011, so you might be using a "GEOID" of 421010369002011 (if the block is included), or just 42101036900 (if you have tract level data only).
+
 ## Access to Census Data
 
 ### APIs
@@ -152,6 +158,8 @@ census_api_key(census_key)
 What variables are available, say, for the five year American Community Survey?  I need to know the end year of the survey I care about, so I can go to <https://www.census.gov/programs-surveys/acs> to discover that 2017 is the latest year end.  Scroll through the variables below ... there are a LOT.
 
 ```{r}
+library(dplyr)
+
 acs5_vars <- load_variables(2017, "acs5")
 kable(acs5_vars) %>%
   kable_styling() %>%
@@ -173,12 +181,58 @@ kable(unique(acs5_vars$concept)) %>%
 
 Maybe we want to hone in on, say, median household income for the census tracts that comprise New York City.  Specifically, I want the variable `B19113_001`.  In my use of `get_acs` I can use geographical names, like "New York", or the FIPS code for those places.  Here, to foster ease of reading, I've used the county names of the five boroughs.  
 
+We can get just the tabular data (the data frame with information) or we can also get the geography.  While it isn't quite the same as what you'd get with `rgdal`, it's still an `sp` object type, so `leaflet` can use it for mapping.
+
+Let's look at it both ways:
+
+##### Just Tabular Data
+
 ```{r}
 nyc_median_income <- get_acs(geography = "tract",
                              variables = "B19113_001",
                              state = "NY",
-                             county = c("New York", "Richmond", "Queens", "Kings", "Bronx"),
+                             county = c("New York", 
+                                        "Richmond", 
+                                        "Queens", 
+                                        "Kings", 
+                                        "Bronx"),
                              survey = "acs5")
+
+```
+
+Let's take a peek:
+
+```{r}
+head(nyc_median_income) %>%
+  kable() %>%
+  kable_styling()
+```
+
+##### With Geography
+
+```{r}
+nyc_median_income_geog <- get_acs(geography = "tract",
+                             variables = "B19113_001",
+                             state = "NY",
+                             county = c("New York", 
+                                        "Richmond", 
+                                        "Queens", 
+                                        "Kings", 
+                                        "Bronx"),
+                             survey = "acs5", 
+                             geometry = TRUE)
+```
+
+```{r}
+head(nyc_median_income_geog)
+```
+
+Here, we don't have bounding box info, so we can't set the view, but `leaflet` can handle that for us out of the box:
+
+```{r}
+library(leaflet)
+leaflet(nyc_median_income_geog) %>%
+  addPolygons()
 ```
 
 #### Using `get_acs` With Codes
@@ -200,13 +254,32 @@ There are `r nrow(nyc_median_income)` census tracts represented in `nyc_median_i
 Let's take a peek at the New York City data frame and get some summary statistics.
 
 ```{r}
-kable(head(nyc_median_income)) %>%
-  kable_styling()
 kable(summary(nyc_median_income)) %>%
   kable_styling()
 ```
 
 Why are some of my rows missing data?  They could be tracts that correspond to areas like parks or rivers where there's only a transient population and there's no meaningful way to make predictions about median income.  When we map this data, we might understand more.
+
+### Decennial Census Statistics
+
+The decennial census is a full population data collection, and the number of available variables and geographic levels supported is reduced, when compared to the American Community Survey.
+
+We can get available variables for the decennial census in much the same way as we did for the American Community Survey.  We're going to pull from "summary file 1", or "sf1".  For information about the "sf1" / "sf2" / "sf3" differences, see: 
+
+* https://www.census.gov/programs-surveys/decennial-census/guidance/2000.html
+* https://www.census.gov/programs-surveys/decennial-census/guidance/2010.html
+
+```{r}
+decennial_vars <- load_variables(2010, "sf1")
+```
+
+Once again, there are thousands of variables... specifically, `r nrow(decennial_vars)`.  Let's look at some major concepts related to Hispanic / Latino origin specifically:
+
+```{r}
+kable(decennial_vars %>% filter(grepl("HISPANIC", concept)))  %>%
+  kable_styling() %>%
+  scroll_box(width = "100%", height = "300px")
+```
 
 
 

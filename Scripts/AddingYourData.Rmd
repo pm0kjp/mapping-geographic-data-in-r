@@ -1,0 +1,302 @@
+---
+title: "Munging Census Data"
+author: "Joy Payton"
+date: "2/26/2019"
+output: 
+  html_document: 
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
+```
+
+## Purposes
+
+So, you have some data... perhaps you want to look at how your patients are responding to an exercise intervention for obesity and see if there's a difference in compliance and weight loss success that could be related to violence near home that make it unsafe to play outside.  
+
+## Preliminaries
+
+You'll want to have a few packages installed.  You may already have these, but if not, run the following:
+
+```{r eval=FALSE}
+install.packages("dplyr")
+install.packages("leaflet")
+install.packages("jsonlite")
+install.packages("ggplot2")
+install.packages("maptools")
+install.packages("sp")
+install.packages("rgdal")
+install.packages("scales")
+```
+
+
+## Obtain Geographic Data
+
+The City of Philadelphia supplies information about shootings (including officer-involved shootings) which includes data about the shooting victim and the location.  Here, we're really interested in the location of shootings over the past few years, to understand what parts of Philadelphia are more prone to this specific kind of violence.
+
+To see more information about this dataset, please visit <https://www.opendataphilly.org/dataset/shooting-victims/resource/a6240077-cbc7-46fb-b554-39417be606ee?inner_span=True>.
+
+For our purposes, we're going to get the bare minimum of information: latitude, longitude, and shooting ID.  The API endpoint is described in the link above and uses a SQL query to select only the data we care about.  Because our query has spaces and other special characters, we need to "encode" it for request.
+
+The data will come in as json, which we'll parse.
+
+```{r shooting-data}
+library(jsonlite)
+url <- URLencode('https://www.opendataphilly.org/api/action/datastore_search_sql?sql=SELECT _id, lat, lng from "a6240077-cbc7-46fb-b554-39417be606ee"')
+shooting_data <- fromJSON(url)
+```
+
+We can examine the shooting data by using R's `str` (structure) command:
+
+```{r}
+str(shooting_data)
+```
+
+Here we see that we have a nested data frame, accessible at `shooting_data$result$records`:
+
+```{r}
+head(shooting_data$result$records, 6)
+```
+
+## Mapping Points
+
+If we wanted to, we could easily create a map of these shootings, just based on latitude and longitude.  Since latitude and longitude are currently in "chr" (character) format, we'll make them numeric so that we can do math on them.  We'll create a map that's centered on the mean latitude and longitude of all our shootings, and which is appropriately zoomed in (you might have to experiment with the zoom factor).
+
+We're going to add a standard road map below to show more context, using `addTiles`.
+
+```{r}
+library(leaflet)
+library(dplyr)
+
+shootings <- shooting_data$result$records
+shootings$lat <- as.numeric(shootings$lat)
+shootings$lng <- as.numeric(shootings$lng)
+
+shootings %>% 
+  leaflet() %>% 
+  addTiles() %>%
+  setView(lng = mean(as.numeric(shootings$lng), na.rm=TRUE), 
+          lat = mean(as.numeric(shootings$lat), na.rm=TRUE), zoom = 10) %>%
+  addMarkers(clusterOptions = markerClusterOptions())
+```
+
+## Mapping Polygons
+
+What's more likely, however, is that we want to use polygon data to create a map that shows how much a particular area is affected.  This is because we want to create *combined* data -- we want to put information about our patients or research subjects along with the level of violence they are exposed to.  Instead of using latitude and longitude, we'll gather the number of shootings per Census tract, which we can then use as a proxy for violence exposure for the patients and subjects who live in that Census tract.  It's a sort of "binning", but using the existing "bins" of Census tracts.  
+
+
+```{r}
+library(rgdal)
+philadelphiaCensusTracts <- readOGR("http://data.phl.opendata.arcgis.com/datasets/8bc0786524a4486bb3cf0f9862ad0fbf_0.geojson")
+```
+
+#### Mapping Point Data to Polygons
+
+Now what we'd like to do is get the shootings-per-tract data, which we can then combine with our research or clinical data to see if violence near home has any effect on our outcomes.  To do this, we take the latitude and longitude of our shootings and transform them slightly so that they are understood as spatial coordinates, not just pairs of numbers.  We'll use the same map projection used in our original `philadelphiaCensusTracts`.
+
+```{r}
+library(sp)
+coordinates <- SpatialPoints(shootings[c("lng", "lat")])
+proj4string(coordinates) <- proj4string(philadelphiaCensusTracts)
+```
+
+Let's now apply what we know about our polygons (from `philadelphiaCensusTracts`) and apply that to our points.  We'll end up with a table that has one row for each shooting coordinate.  Essentially, what we're doing is taking each point, lining it up with a matching polygon, and then getting the data about that polygon, which came along with the geoJSON file we downloaded.  We don't want our `NAME10` to be a factor variable, but a character field (who knows if next Census we might have something like 176.02.A, which is why we don't use numeric).
+
+```{r}
+shooting_tract_data <- over(coordinates, philadelphiaCensusTracts)
+shooting_tract_data$NAME10 <- shooting_tract_data$NAME10
+head(shooting_tract_data)
+```
+
+We see the first few lines of the Census data for each of our shootings.  For example, the first shooting in our shooting data corresponds to Census tract 36, which is in State 42 (Pennsylvania) and County 101 (Philadelphia County).  We can use this to find out how many shootings take place in each Census tract.  
+
+
+```{r}
+shootings_by_census_shortname <- shooting_tract_data %>% 
+                                 group_by(NAME10) %>% 
+                                 summarise(num_shootings = n()) %>% 
+                                 ungroup() 
+head(shootings_by_census_shortname)
+```
+
+#### Handling Empty Data
+
+Don't forget that there are some Census tracts that aren't represented at all in our `shooting_tract_data` data frame, so let's make sure we enrich it with all the tracts that aren't included in the shooting data.  We can get those by taking the data frame of our tract data, selecting the list of all the Census tracts in Philadelphia, and making sure that if they weren't mentioned above, we add them, but with `num_shootings` equal to 0.
+
+```{r}
+non_shooting_tracts <- philadelphiaCensusTracts@data %>% 
+                       select(NAME10) %>%
+                       filter(!NAME10 %in% shootings_by_census_shortname$NAME10) %>%
+                       mutate(num_shootings = 0)
+head(non_shooting_tracts)
+```
+
+We can now combine the tracts-with-shootings and the tracts-with-no-shootings to get an overall picture of violence by census tract:
+
+```{r}
+shooting_by_tract <- rbind(shootings_by_census_shortname, non_shooting_tracts)
+```
+
+#### Adding Some Proprietary Data
+
+***Important aside: this data is completely fabricated.  So 'appearances to any person, living or dead, are coincidental.***
+
+Let's take a peek at our fake data:
+
+```{r}
+fake_exercise_data <- read.csv("../Data/fake_exercise_data.csv", stringsAsFactors = FALSE)
+head(fake_exercise_data)
+```
+
+We now have two data frames that interest us: 
+
+* One has a row per subject, and includes their Census tract and exercise amount
+* One has a row per Census tract, and includes the number of shootings there
+
+#### Adding Clinical/Research Data
+
+Let's combine them and take a quick look:
+
+```{r}
+exercise_and_violence <- merge(x=fake_exercise_data, y = shooting_by_tract, 
+                               by.x = "census_tract", by.y = "NAME10", all = TRUE)
+head(exercise_and_violence)
+```
+
+Do we see any trends?  Let's do a quick plot.
+
+```{r}
+plot(exercise_and_violence$num_shootings, exercise_and_violence$daily_exercise_minutes)
+```
+
+Wow, it looks like there's a trend here!  (Which makes sense, since I baked it into my fake data...)
+
+At this point, statistically, we could do a two-sample test on the top and bottom quartile of our subjects to see if near-home violence leads to decreased exercise, or create a predictive model using regression. 
+
+We could also create a map -- something that is easily understandable for policymakers and philanathropists to understand, or something you could put into a publication or on your website.  Since in this case you're talking about statisics per Census tract, you'll want to simplify your data and find something like the mean or median amount of exercise per tract.  Let's do that now:
+
+#### Aggregating Clinical/Research Data
+
+```{r}
+exercise_per_tract <- exercise_and_violence %>% 
+                      group_by(census_tract) %>%
+                      summarise(mean_exercise = mean(daily_exercise_minutes)) %>%
+                      ungroup()
+head(exercise_per_tract)
+```
+
+And we can combine our exercise by tract with our shootings by tract, for an almost-map-ready dataset:
+
+```{r}
+exercise_shootings_per_tract <- merge(x=exercise_per_tract, y=shooting_by_tract, 
+                                      by.x="census_tract", by.y="NAME10",
+                                      all = TRUE)
+head(exercise_shootings_per_tract)
+```
+
+#### Combine with Map Data Frame!
+
+*** WARNING WARNING PITFALL AHEAD! ***
+
+First, we'll combine `exercise_shootings_per_tract` with the data found in `philadelphiaCensusTracts@data`:
+
+```{r}
+census_tracts <- philadelphiaCensusTracts@data %>% mutate(NAME10 = as.character(NAME10))
+census_tracts <- merge(x=census_tracts, y=exercise_shootings_per_tract, by.x="NAME10", by.y="census_tract")
+```
+
+Then we'll add our enriched data back to the geojson data, so that in addition to the fields it came with, it will now contain the exercise and shooting data we gathered.  It's important to order this data by the OBJECTID so that the correct polygon is associated with the correct data!
+
+```{r}
+philadelphiaCensusTracts@data <- census_tracts[order(census_tracts$OBJECTID),]
+```
+
+Now, let's create an interactive map!  We'll color the polygons by exercise amount to begin with.
+
+```{r fig.width = 10}
+exercise_palette <- colorBin("Blues", domain = philadelphiaCensusTracts$mean_exercise, bins = 5, na.color = "#808080")
+
+interactive_map <- leaflet(philadelphiaCensusTracts) %>%
+  setView(lng = mean(as.numeric(shootings$lng), na.rm=TRUE), 
+          lat = mean(as.numeric(shootings$lat), na.rm=TRUE), zoom = 11) %>%
+  addPolygons(
+    data = philadelphiaCensusTracts,
+    fillColor = ~exercise_palette(philadelphiaCensusTracts@data$mean_exercise),
+    weight = 1,  # border thickness
+    opacity = 0.5, # border opacity
+    color = "white", # border color
+    fillOpacity = 1)
+interactive_map
+```
+
+Now, let's add some labels.  We'll do variable interpolation to create labels that tell what each Census tract is and the exercise and shooting data for that tract:
+
+```{r}
+labels <- sprintf(
+  "<strong>%s</strong><br/>
+  Exercise in Minutes: %g <br/>
+  Number of Shootings: %g",
+  philadelphiaCensusTracts$NAMELSAD10, 
+  philadelphiaCensusTracts$mean_exercise,
+  philadelphiaCensusTracts$num_shootings
+) %>% lapply(htmltools::HTML)
+```
+
+
+Then we'll create the map again, but with labels.  This allows the viewer to see at a glance the violence and exercise metrics for each tract!
+
+```{r}
+interactive_map <- leaflet(philadelphiaCensusTracts) %>%
+  setView(lng = mean(as.numeric(shootings$lng), na.rm=TRUE), 
+          lat = mean(as.numeric(shootings$lat), na.rm=TRUE), zoom = 11) %>%
+  addPolygons(
+    fillColor = ~exercise_palette(mean_exercise),
+    weight = 1,  # border thickness
+    opacity = 0.5, # border opacity
+    color = "white", # border color
+    fillOpacity = 1,
+  label = labels,
+  labelOptions = labelOptions(
+    style = list("font-weight" = "normal", padding = "3px 8px"),
+    textsize = "15px",
+    direction = "auto"))
+interactive_map
+
+```
+
+What if we also want to show some color values for shootings, like we did above in our static maps?  We'll layer: our first layer will be a map that has all white borders and our second layer will have red borders, but they'll only be visible for the shapes for which shootings are more than 10.
+
+```{r}
+border_opacity <- as.numeric(philadelphiaCensusTracts$num_shootings >= 10)
+```
+
+
+
+```{r}
+interactive_map <- leaflet(philadelphiaCensusTracts) %>%
+  setView(lng = mean(as.numeric(shootings$lng), na.rm=TRUE), 
+          lat = mean(as.numeric(shootings$lat), na.rm=TRUE), zoom = 11) %>%
+  addPolygons(
+    fillColor = ~exercise_palette(mean_exercise),
+    weight = 1,  # border thickness
+    color = "white",
+    fillOpacity = 1)  %>%
+  addPolygons(
+    fillOpacity = 0,
+    color = "red",
+    opacity = border_opacity,
+    weight = 2,
+    label = labels,
+  labelOptions = labelOptions(
+    style = list("font-weight" = "normal", padding = "3px 8px"),
+    textsize = "15px",
+    direction = "auto")
+  )
+interactive_map
+
+```
+
+

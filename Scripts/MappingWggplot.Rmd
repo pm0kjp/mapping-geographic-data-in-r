@@ -1,0 +1,191 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
+```
+
+## Mapping Using ggplot2
+
+
+## Obtain Geographic Data
+
+Get the shooting data from before:
+
+```{r shooting-data}
+library(jsonlite)
+url <- URLencode('https://www.opendataphilly.org/api/action/datastore_search_sql?sql=SELECT _id, lat, lng from "a6240077-cbc7-46fb-b554-39417be606ee"')
+shooting_data <- fromJSON(url)
+```
+
+
+```{r}
+library(dplyr)
+
+shootings <- shooting_data$result$records
+shootings$lat <- as.numeric(shootings$lat)
+shootings$lng <- as.numeric(shootings$lng)
+```
+
+
+## Mapping Polygons
+
+
+```{r}
+library(rgdal)
+philadelphiaCensusTracts <- readOGR("http://data.phl.opendata.arcgis.com/datasets/8bc0786524a4486bb3cf0f9862ad0fbf_0.geojson")
+```
+
+
+### Option 1: Static Maps
+
+We can specify Census tract by various methods -- by the full code number `GEOID10`, by the short code `NAME10`, or by the human-friendly name `NAMELSAD10`.  For now, I'll use the Census short code.
+
+I'll get that complex data type, then make a long data frame of its geography which I'll call `philadelphiaCensusTracts_fortified`, which will set a "group" (region) equal to the `NAME10` aspect.  This allows me to easily join data to it later on.  
+
+```{r}
+library(broom)
+philadelphiaCensusTracts_fortified <- tidy(philadelphiaCensusTracts, region = "NAME10")
+```
+
+What does this geojson data "look" like, when we plot the various polygons it includes?  Each polygon represents a Census tract from the 2010 Census.
+
+```{r}
+library(ggplot2)
+library(ggmap)
+philly_plain <- ggplot() + 
+  geom_polygon(data=philadelphiaCensusTracts_fortified, 
+               aes(x=long, y=lat, group=group, fill=NA), 
+               color = "black", fill=NA, size=0.1) +
+  coord_map() + 
+  theme_nothing()
+print(philly_plain)
+```
+
+
+We could visually overlay shootings on top of the census tracts, which at least helps us see which census tracts might be the most affected.  This doesn't help us calculate any statistics, but at least gives us an intuition about our data:
+
+```{r}
+philly_enhanced <- ggplot() + 
+  geom_polygon(data=philadelphiaCensusTracts_fortified, 
+               aes(x=long, y=lat, group=group, fill=NA), 
+               color = "black", fill=NA, size=0.1) +
+  geom_point(data=shootings, aes(x=lng, y=lat, color="red", shape=".", alpha=0.5)) + 
+  coord_map() + 
+  theme_nothing()
+print(philly_enhanced)
+```
+
+From this map, we see that some tracts have no shootings at all, and others have many.  We need to remember that not every Census tract has shooting data, and we presume that means that there were 0 shootings, so we will need to add that in, if we want to show data for all Census tracts.
+
+#### Mapping Point Data to Polygons
+
+```{r}
+library(sp)
+coordinates <- SpatialPoints(shootings[c("lng", "lat")])
+proj4string(coordinates) <- proj4string(philadelphiaCensusTracts)
+```
+
+
+```{r}
+shooting_tract_data <- over(coordinates, philadelphiaCensusTracts)
+```
+
+
+```{r}
+shootings_by_census_shortname <- shooting_tract_data %>% 
+                                 group_by(NAME10) %>% 
+                                 summarise(num_shootings = n()) %>% 
+                                 ungroup() 
+head(shootings_by_census_shortname)
+```
+
+#### Handling Empty Data
+
+```{r}
+non_shooting_tracts <- philadelphiaCensusTracts@data %>% 
+                       select(NAME10) %>%
+                       filter(!NAME10 %in% shootings_by_census_shortname$NAME10) %>%
+                       mutate(num_shootings = 0)
+head(non_shooting_tracts)
+```
+
+We can now combine the tracts-with-shootings and the tracts-with-no-shootings to get an overall picture of violence by census tract:
+
+```{r}
+shooting_by_tract <- rbind(shootings_by_census_shortname, non_shooting_tracts)
+```
+
+```{r}
+fake_exercise_data <- read.csv("../Data/fake_exercise_data.csv")
+```
+
+#### Aggregating Clinical/Research Data
+
+```{r}
+exercise_per_tract <- fake_exercise_data %>% 
+                      group_by(census_tract) %>%
+                      summarise(mean_exercise = mean(daily_exercise_minutes)) %>%
+                      ungroup()
+head(exercise_per_tract)
+```
+
+And we can combine our exercise by tract with our shootings by tract, for an almost-map-ready dataset:
+
+```{r}
+exercise_shootings_per_tract <- merge(x=exercise_per_tract, y=shooting_by_tract, 
+                                      by.x="census_tract", by.y="NAME10",
+                                      all = TRUE)
+head(exercise_shootings_per_tract)
+```
+
+#### Create Static Maps
+
+Why do I say *almost*-map-ready?  Because we have to combine our exercise and shooting data back into the data that includes our polygons.  We can again do this using merge!
+
+```{r}
+final_data <- merge(x = philadelphiaCensusTracts_fortified, y = exercise_shootings_per_tract, by.x = "id", by.y="census_tract", all=TRUE)
+```
+
+You'll have to be creative about how to display the data in a map, because you want to show two different things: exercise amount (which we might not have for every single tract), and number of shootings (which we do have for each tract).  If you're using static maps (non-interactive images for a poster or publication), you could consider doing side-by-side maps like this:
+
+```{r fig.width=4.5, fig.show="hold"}
+library(scales)
+philly_violence_map <- ggplot() +  
+  geom_polygon(data = final_data, aes(x=long, y=lat, group=group, fill=num_shootings),
+               color= "black", size = 0.1)  + 
+  coord_map() +
+  scale_fill_distiller(type="seq", trans="reverse", palette = "Reds", breaks=pretty_breaks(n=5))  +
+  theme_nothing(legend=TRUE) +
+  labs(title="Shootings in Philadelphia, 2015-2018", fill="")
+philly_violence_map
+
+
+philly_exercise_map <- ggplot() +  
+  geom_polygon(data = final_data, aes(x=long, y=lat, group=group, fill=mean_exercise),
+               color= "black", size = 0.1)  + 
+  coord_map() +
+  scale_fill_distiller(type="seq", trans="reverse", palette = "Blues", breaks=pretty_breaks(n=5))  +
+  theme_nothing(legend=TRUE) +
+  labs(title="Exercise in Average Minutes Per Day by Subjects", fill="")
+philly_exercise_map
+```
+
+Looking at the two side by side is a bit hard, right?  There's lots of grey in our exercise map, after all... it's hard to tell what's going on and if any pattern exists.
+
+What if we used `fill` to show exercise amount and then had the border color different for high-violence sectors?  We'll map the areas with 10 or more shootings as a separate layer on top of the rest.
+
+```{r}
+high_shooting_areas <- subset(final_data, num_shootings >=10)
+
+philly_combined_map <- ggplot() +  
+  geom_polygon(data = final_data, aes(x=long, y=lat, group=group, fill=mean_exercise),
+               color = "black", size=0.2 )  + 
+  coord_map() +
+  geom_polygon(data = high_shooting_areas, aes(x=long, y=lat, fill=mean_exercise, group=group),
+               color = "red", size=0.4 )  + 
+  scale_fill_distiller(type="seq", trans="reverse", palette = "Blues", breaks=pretty_breaks(n=5))  +
+
+  theme_nothing(legend=TRUE) +
+  labs(title="Exercise in Average Minutes Per Day by Subjects,\nAreas with 10+ Shootings Outlined in Red", fill="")
+philly_combined_map
+```
+
+This way we can see the effect of shootings on exercise at a glance:  the areas with more shootings have a lighter color of blue, and those areas are often lined with red.  Still, we can't see the total number of shootings -- the gradations of color to do that would be hard to detect, so we opted to use a cutoff for high violence areas.

@@ -232,6 +232,7 @@ Here, we don't have bounding box info, so we can't set the view, but `leaflet` c
 
 ```{r}
 library(leaflet)
+library(leaflet.extras)
 leaflet(nyc_median_income_geog) %>%
   addPolygons()
 ```
@@ -284,12 +285,19 @@ kable(decennial_vars %>% filter(grepl("HISPANIC", concept)))  %>%
 
 Let's see if we can figure out which columns would be most useful for us to map Hispanic/Latino populations in Philadelphia county in order to plan for new markets for a supermarket chain that features Latin American ingredients.
 
-For now, we'll get all the ones under the concept "HISPANIC OR LATINO ORIGIN", then figure out which ones are most effective.
+For now, we'll begin by identifying the variables under the concept "HISPANIC OR LATINO ORIGIN".
 
-```{r message = FALSE, results='hide'}
+```{r}
+kable(decennial_vars %>% 
+                 filter(concept == "HISPANIC OR LATINO ORIGIN"))
 hisp_lat_vars <- decennial_vars %>% 
                  filter(concept == "HISPANIC OR LATINO ORIGIN") %>% 
                  pull(name)
+```
+
+
+
+```{r message = FALSE, results='hide'}
 philly_latino <- get_decennial(geography = "tract",
                                variables = hisp_lat_vars,
                                state = 42,
@@ -298,5 +306,72 @@ philly_latino <- get_decennial(geography = "tract",
                                geometry = TRUE)
 ```
 
+Let's take a peek at our data:
 
+```{r}
+kable(head(philly_latino)) %>%
+  kable_styling()
+```
 
+What's going on with that "variable" column?  Is there just one census variable that we pulled in, P004001?  Why isn't the title of the column P004001?
+
+Let's do some additional investigation.  How many unique values are in "variable"?
+
+```{r}
+unique(philly_latino$variable)
+```
+
+OK, so what we have here is "long" data, e.g. we have key-value pairs.  We probably want that spread to a wide format, however:
+
+```{r}
+library(tidyr)
+philly_latino_wide <- philly_latino %>% spread(key = "variable", value = "value")
+head(philly_latino_wide) %>%
+  kable() %>%
+  kable_styling()
+```
+
+Great, now we have some info we can map, in order to plan our supermarkets.  Let's do a quick analysis of which variable might be most useful (statistically speaking):
+
+```{r}
+summary(philly_latino_wide)
+```
+
+Well, it looks like sparsity isn't an issue -- we're lucky in that respect.  Let's remind ourselves of what these variables are:
+
+```{r}
+kable(decennial_vars %>% 
+      filter(concept == "HISPANIC OR LATINO ORIGIN")) %>%
+  kable_styling()
+```
+
+Oh, so maybe we need to do some math.  Let me check my understanding.  Is it true that P004002 + P004003 = P004001?  If so we can calculate a percentage easily.
+
+```{r}
+table(philly_latino_wide$P004002 + philly_latino_wide$P004003 == philly_latino_wide$P004001) %>%
+  kable() %>%
+  kable_styling()
+```
+
+Great, we can find the percentage Latino easily:
+
+```{r}
+philly_latino_wide <- philly_latino_wide %>% mutate (pct_latino = (P004003/P004001)*100)
+```
+
+Now, let's map!
+
+```{r}
+latino_palette <- colorBin("Greens", domain = philly_latino_wide$pct_latino, bins = 5, na.color = "#808080")
+
+leaflet() %>%
+addPolygons(
+    data = philly_latino_wide,
+    fillColor = ~latino_palette(philly_latino_wide$pct_latino),
+    weight = 1,  # border thickness
+    opacity = 0.5, # border opacity
+    color = "white", # border color
+    fillOpacity = 1,
+    label = paste("Percent Latino: ", philly_latino_wide$pct_latino, sep = "")) %>%
+  suspendScroll()
+```

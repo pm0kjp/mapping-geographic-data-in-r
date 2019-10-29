@@ -1,3 +1,14 @@
+---
+title: "Mapping With ggplot2"
+author: "Joy Payton"
+date: "10/26/2019"
+output: 
+  html_document: 
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+---
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
 ```

@@ -14,7 +14,6 @@ knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALS
 
 # Note the "cache = TRUE" above -- this is polite, to keep from hitting someone's 
 # server over and over again as we incrementally improve a script.
-
 ```
 
 

@@ -10,6 +10,8 @@ output:
 ---
 
 ```{r setup, include=FALSE}
+# install.packages(c("dplyr", "htmltidy", "jsonlite", "knitr", "leaflet", "leaflet.extras", "rgdal", "xml2", "curl"))
+
 knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALSE)
 
 # Note the "cache = TRUE" above -- this is polite, to keep from hitting someone's 
@@ -207,11 +209,11 @@ Not connected to the Internet?  Did you get this Rmd file by forking or cloning 
 ```{r}
 #install.packages("jsonlite")
 library(jsonlite)
-url <- URLencode('http://data.beta.nyc//dataset/f6738713-ab52-4508-aad9-778f5b651413/resource/712bdd42-5f17-4441-bb43-72bb37d85df6/download/83427cd54009438ab3388dd5ed3611cenycstatesenatedistricts2013.geojson')
+url <- URLencode('https://data.cityofnewyork.us/api/geospatial/h4i2-acfi?method=export&format=GeoJSON')
 nyc_senate <- fromJSON(url)
 
 # Optional line if you don't want to load this from the NYC data source online:
-nyc_senate <- fromJSON("../Data/83427cd54009438ab3388dd5ed3611cenycstatesenatedistricts2013.geojson")
+# nyc_senate <- fromJSON("../Data/83427cd54009438ab3388dd5ed3611cenycstatesenatedistricts2013.geojson")
 ```
 
 Let's take a look inside `nyc_senate`.
@@ -245,7 +247,7 @@ Now, let's grab that geoJSON again, but this time, bring it directly through rgd
 ```{r}
 # You can choose this one: 
 
-nyc_senate <- readOGR('http://data.beta.nyc//dataset/f6738713-ab52-4508-aad9-778f5b651413/resource/712bdd42-5f17-4441-bb43-72bb37d85df6/download/83427cd54009438ab3388dd5ed3611cenycstatesenatedistricts2013.geojson')
+nyc_senate <- readOGR('https://data.cityofnewyork.us/api/geospatial/h4i2-acfi?method=export&format=GeoJSON')
 
 # Or this one!
 

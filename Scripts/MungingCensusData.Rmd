@@ -1,7 +1,7 @@
 ---
 title: "Munging Census Data"
 author: "Joy Payton"
-date: "2/26/2019"
+date: "10/26/2019"
 output: 
   html_document: 
     toc: yes
@@ -10,10 +10,9 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-
-
 # Note you may need to install some packages!
-# install.packages(c("kableExtra", "tidycensus"), dependencies = TRUE)
+# dplyr should be up to date, if not you might have problems with sf.
+# install.packages(c("sf", "knitr", "kableExtra", "tidycensus", "dplyr"), dependencies = TRUE)
 
 # You will CERTAINLY need to get a census API key -- read on below.
 
@@ -147,6 +146,7 @@ census_key <- readLines("../Private/census_api_key.txt")
 Let's use `tidycensus`!  It creates a smoother experience for a handful of Census API calls.  I'll set my census key once using `tidycensus::census_key` so that I don't have to keep referencing it in API calls I make.
 
 ```{r}
+library(sf)
 library(tidycensus)
 census_api_key(census_key)
 options(tigris_use_cache = TRUE)

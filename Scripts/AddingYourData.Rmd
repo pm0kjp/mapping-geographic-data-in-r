@@ -1,7 +1,7 @@
 ---
 title: "Adding Your Data"
 author: "Joy Payton"
-date: "2/26/2019"
+date: "10/26/2019"
 output: 
   html_document: 
     toc: yes

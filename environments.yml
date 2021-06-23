@@ -3,17 +3,3 @@ channels:
 dependencies:
   - r-base=3.6
   - r-tidyverse
-  - r-rgdal
-  - r-leaflet
-  - r-jsonlite
-  - r-leaflet.extras
-  - r-sp
-  - r-sf
-  - r-broom
-  - r-ggmap
-  - r-scales
-  - r-knitr
-  - r-kableExtra
-  - r-xml2
-  - r-printr
-  - r-spdep

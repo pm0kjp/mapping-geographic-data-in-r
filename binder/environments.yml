@@ -1,10 +1,9 @@
 channels:
-  - defaults
+  - conda-forge
 dependencies:
   - r-base=3.6
   - r-tidyverse
   - r-rgdal
-  - r-tidycensus
   - r-leaflet
   - r-jsonlite
   - r-leaflet.extras
@@ -16,6 +15,5 @@ dependencies:
   - r-knitr
   - r-kableExtra
   - r-xml2
-  - r-htmltidy
   - r-printr
   - r-spdep

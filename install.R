@@ -1,0 +1,17 @@
+tidyverse
+rgdal
+tidycensus
+leaflet
+jsonlite
+leaflet.extras
+sp
+sf
+broom
+ggmap
+scales
+knitr
+kableExtra
+xml2
+htmltidy
+printr
+spdep
